@@ -271,14 +271,14 @@ export function ProductIntakeForm({
           </span>
           <input
             aria-label="上传知识文件"
-            accept=".txt,.md,.csv,.xlsx,.xls,.docx,.pdf"
+            accept=".txt,.md,.csv,.xlsx,.docx,.pdf"
             className={inputClass}
             id="knowledge-upload"
             onChange={uploadKnowledge}
             type="file"
           />
           <span className="block text-xs leading-5 text-[#657184]">
-            支持 txt、md、csv、xlsx、xls、docx 和 pdf。
+            支持 txt、md、csv、xlsx、docx 和 pdf。旧版 xls 请另存为 xlsx 后上传。
           </span>
         </label>
 

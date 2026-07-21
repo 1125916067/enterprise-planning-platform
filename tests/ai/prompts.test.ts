@@ -4,8 +4,9 @@ import {
   buildFollowUpPrompt,
   buildPlanningPrompt
 } from "../../src/lib/ai/prompts";
+import type { PlanningInput } from "../../src/lib/planning/schema";
 
-const planningInput = {
+const planningInput: PlanningInput = {
   productName: "智能门店运营平台",
   description: "为连锁零售企业提供库存预测、门店排班和促销分析的一体化平台。",
   productTypes: ["saas"],

@@ -2,7 +2,6 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
-import * as XLSX from "xlsx";
 
 import { demoReport } from "../../src/lib/planning/demo-data";
 
@@ -75,11 +74,11 @@ describe("report exporters", () => {
     const { buildXlsxWorkbook } = await import("../../src/lib/export/xlsx");
 
     const buffer = await buildXlsxWorkbook(demoReport);
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const workbook = await readSimpleXlsx(buffer);
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.byteLength).toBeGreaterThan(100);
-    expect(workbook.SheetNames).toEqual([
+    expect(workbook.sheetNames).toEqual([
       "成本表",
       "上线流程",
       "招聘表",
@@ -87,32 +86,23 @@ describe("report exporters", () => {
       "任务表"
     ]);
 
-    const costRows = XLSX.utils.sheet_to_json<Record<string, string>>(
-      workbook.Sheets["成本表"]
-    );
-    const launchRows = XLSX.utils.sheet_to_json<Record<string, string>>(
-      workbook.Sheets["上线流程"]
-    );
-    const taskRows = XLSX.utils.sheet_to_json<Record<string, string>>(
-      workbook.Sheets["任务表"]
-    );
+    const costSheet = workbook.sheets["成本表"];
+    const launchSheet = workbook.sheets["上线流程"];
+    const taskSheet = workbook.sheets["任务表"];
 
-    expect(costRows[0]).toMatchObject({
-      类别: demoReport.boards.costs[0].category,
-      项目: demoReport.boards.costs[0].item,
-      预算估算: demoReport.boards.costs[0].estimate,
-      负责人: demoReport.boards.costs[0].owner
-    });
-    expect(launchRows[0]).toMatchObject({
-      阶段: demoReport.boards.launches[0].phase,
-      平台: demoReport.boards.launches[0].platform,
-      成功指标: demoReport.boards.launches[0].successMetric
-    });
-    expect(taskRows[0]).toMatchObject({
-      里程碑: demoReport.boards.tasks[0].milestone,
-      任务: demoReport.boards.tasks[0].task,
-      状态: demoReport.boards.tasks[0].status
-    });
+    expect(costSheet[0]).toEqual(["类别", "项目", "预算估算", "时间", "负责人", "依据"]);
+    expect(costSheet[1][0]).toBe(demoReport.boards.costs[0].category);
+    expect(costSheet[1][1]).toBe(demoReport.boards.costs[0].item);
+    expect(costSheet[1][2]).toBe(demoReport.boards.costs[0].estimate);
+    expect(costSheet[1][4]).toBe(demoReport.boards.costs[0].owner);
+    expect(launchSheet[0]).toEqual(["阶段", "时间范围", "平台", "目标", "成功指标"]);
+    expect(launchSheet[1][0]).toBe(demoReport.boards.launches[0].phase);
+    expect(launchSheet[1][2]).toBe(demoReport.boards.launches[0].platform);
+    expect(launchSheet[1][4]).toBe(demoReport.boards.launches[0].successMetric);
+    expect(taskSheet[0]).toEqual(["里程碑", "任务", "负责人", "截止时间", "状态"]);
+    expect(taskSheet[1][0]).toBe(demoReport.boards.tasks[0].milestone);
+    expect(taskSheet[1][1]).toBe(demoReport.boards.tasks[0].task);
+    expect(taskSheet[1][4]).toBe(demoReport.boards.tasks[0].status);
   });
 });
 
@@ -136,6 +126,40 @@ function decodeXmlText(value: string): string {
     .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&amp;", "&");
+}
+
+async function readSimpleXlsx(buffer: Buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const workbookXml = await zip.file("xl/workbook.xml")?.async("string");
+
+  if (!workbookXml) {
+    throw new Error("XLSX workbook XML is missing.");
+  }
+
+  const sheetNames = [...workbookXml.matchAll(/<sheet\b[^>]*name="([^"]+)"/g)].map(
+    (match) => decodeXmlText(match[1])
+  );
+  const sheets: Record<string, string[][]> = {};
+
+  await Promise.all(
+    sheetNames.map(async (sheetName, index) => {
+      const sheetXml = await zip.file(`xl/worksheets/sheet${index + 1}.xml`)?.async("string");
+      if (!sheetXml) {
+        throw new Error(`XLSX worksheet ${index + 1} XML is missing.`);
+      }
+      sheets[sheetName] = parseWorksheetRows(sheetXml);
+    })
+  );
+
+  return { sheetNames, sheets };
+}
+
+function parseWorksheetRows(sheetXml: string) {
+  return [...sheetXml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map((rowMatch) =>
+    [...rowMatch[1].matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/g)].map((cellMatch) =>
+      decodeXmlText(cellMatch[1].match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] || "")
+    )
+  );
 }
 
 describe("export API routes", () => {

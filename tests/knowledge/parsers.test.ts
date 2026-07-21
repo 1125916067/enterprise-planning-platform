@@ -2,12 +2,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
+import JSZip from "jszip";
 
 import {
   parseCsvBuffer,
+  parseExcelBuffer,
   parseKnowledgeFile,
   parseTextBuffer
 } from "../../src/lib/knowledge/parsers";
+import { buildXlsxWorkbook } from "../../src/lib/export/xlsx";
+import { demoReport } from "../../src/lib/planning/demo-data";
 
 const knowledgeFile = path.join(process.cwd(), ".local-data", "knowledge.json");
 
@@ -27,6 +31,36 @@ describe("knowledge parsers", () => {
     expect(text).toContain("运营负责人");
     expect(text).toContain("预算");
     expect(text).toContain("50万");
+  });
+
+  it("parses XLSX buffers into row text", async () => {
+    const buffer = await buildXlsxWorkbook(demoReport);
+
+    const text = await parseExcelBuffer(buffer);
+
+    expect(text).toContain("成本表");
+    expect(text).toContain(`项目: ${demoReport.boards.costs[0].item}`);
+    expect(text).toContain(`负责人: ${demoReport.boards.costs[0].owner}`);
+  });
+
+  it("parses XLSX worksheets through workbook relationships", async () => {
+    const buffer = await buildRelationshipMappedWorkbook();
+
+    const text = await parseExcelBuffer(buffer);
+
+    expect(text).toContain("自定义调研");
+    expect(text).toContain("指标: 目标客群");
+    expect(text).toContain("内容: 连锁零售运营负责人");
+  });
+
+  it("rejects legacy xls files with a safe migration message", async () => {
+    const file = new File(["legacy"], "legacy.xls", {
+      type: "application/vnd.ms-excel"
+    });
+
+    await expect(parseKnowledgeFile(file)).rejects.toThrow(
+      "请将表格另存为 xlsx"
+    );
   });
 
   it("rejects unsupported knowledge files with a clear Chinese message", async () => {
@@ -87,6 +121,25 @@ describe("POST /api/knowledge/upload", () => {
     expect(payload.error).toContain("不支持的知识文件类型");
   });
 
+  it("returns 400 for legacy xls uploads with migration guidance", async () => {
+    const formData = new FormData();
+    formData.set(
+      "file",
+      new File(["legacy"], "legacy.xls", {
+        type: "application/vnd.ms-excel"
+      })
+    );
+
+    const { POST } = await import("../../src/app/api/knowledge/upload/route");
+    const response = await POST({
+      formData: async () => formData
+    } as Request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain("请将表格另存为 xlsx");
+  });
+
   it("returns 413 for oversized uploads", async () => {
     const formData = new FormData();
     formData.set(
@@ -106,6 +159,60 @@ describe("POST /api/knowledge/upload", () => {
     expect(payload.error).toContain("8MB");
   });
 });
+
+async function buildRelationshipMappedWorkbook() {
+  const zip = new JSZip();
+
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/custom-data.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>`
+  );
+  zip.file(
+    "xl/workbook.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="自定义调研" sheetId="1" r:id="rId9"/>
+  </sheets>
+</workbook>`
+  );
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/custom-data.xml"/>
+</Relationships>`
+  );
+  zip.file(
+    "xl/sharedStrings.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">
+  <si><t>指标</t></si>
+  <si><t>内容</t></si>
+  <si><t>目标客群</t></si>
+  <si><t>连锁零售运营负责人</t></si>
+</sst>`
+  );
+  zip.file(
+    "xl/worksheets/custom-data.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>
+    <row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c></row>
+  </sheetData>
+</worksheet>`
+  );
+
+  return Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+}
 
 describe("local JSON storage", () => {
   const originalCwd = process.cwd();

@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ record });
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("不支持的知识文件类型")) {
+    if (error instanceof Error && isUserFileError(error.message)) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
@@ -66,4 +66,11 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function isUserFileError(message: string) {
+  return (
+    message.startsWith("不支持的知识文件类型") ||
+    message.startsWith("暂不支持旧版 xls 文件")
+  );
 }

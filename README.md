@@ -8,12 +8,12 @@ An internal enterprise planning workspace powered by DeepSeek. The app helps tea
 - DeepSeek-generated planning report with conservative, growth, and risk perspectives.
 - Right-side follow-up assistant for asking contextual questions about the current plan.
 - Structured planning boards for cost, launch, recruitment, promotion, and task workstreams.
-- Knowledge upload support for text, Markdown, CSV, Excel, Word, and PDF files.
+- Knowledge upload support for text, Markdown, CSV, `.xlsx` Excel, Word, and PDF files. Legacy `.xls` files should be saved as `.xlsx` before upload.
 - PDF, Word, and Excel exports for sharing generated reports and planning data.
 
 ## Local Setup
 
-Next.js 15 requires Node.js 18.18 or newer. Node.js 20 or newer is recommended for local development.
+Use Node.js 20.19 or newer. Node.js 22.12 or newer is also supported by the Vite/Vitest toolchain used in this project.
 
 ```bash
 git clone <your-repo-url>
