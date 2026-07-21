@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import JSZip from "jszip";
 import * as XLSX from "xlsx";
 
 import { demoReport } from "../../src/lib/planning/demo-data";
@@ -57,10 +58,17 @@ describe("report exporters", () => {
     const { buildDocxReport } = await import("../../src/lib/export/docx");
 
     const buffer = await buildDocxReport(demoReport);
+    const documentText = await extractDocxDocumentText(buffer);
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.byteLength).toBeGreaterThan(100);
     expect(buffer.subarray(0, 2).toString("utf8")).toBe("PK");
+    expect(documentText).toContain(demoReport.title);
+    expect(documentText).toContain("执行决策");
+    expect(documentText).toContain(demoReport.executiveDecision.recommendation);
+    expect(documentText).toContain(demoReport.sections[0].title);
+    expect(documentText).toContain("来源说明");
+    expect(documentText).toContain(demoReport.sourceNotes[0]);
   });
 
   it("builds an Excel workbook with the required planning board sheets", async () => {
@@ -107,6 +115,28 @@ describe("report exporters", () => {
     });
   });
 });
+
+async function extractDocxDocumentText(buffer: Buffer): Promise<string> {
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml")?.async("string");
+
+  if (!documentXml) {
+    throw new Error("DOCX document XML is missing.");
+  }
+
+  return [...documentXml.matchAll(/<w:t[^>]*>(.*?)<\/w:t>/g)]
+    .map((match) => decodeXmlText(match[1]))
+    .join("");
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&apos;", "'")
+    .replaceAll("&amp;", "&");
+}
 
 describe("export API routes", () => {
   it("returns a PDF download response", async () => {
