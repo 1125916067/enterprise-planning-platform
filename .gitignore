@@ -8,4 +8,5 @@ coverage
 .env.*.local
 .local-data
 *.log
+*.tsbuildinfo
 .DS_Store

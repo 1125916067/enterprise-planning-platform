@@ -16,21 +16,31 @@ import {
 
 const requiredText = z.string().trim().min(1);
 
+const uniqueEnumArray = <TValues extends readonly [string, ...string[]]>(
+  values: TValues
+) =>
+  z
+    .array(z.enum(values))
+    .min(1)
+    .refine((items) => new Set(items).size === items.length, {
+      message: "Duplicate selections are not allowed."
+    });
+
 export const planningInputSchema = z
   .object({
     productName: requiredText,
     description: requiredText,
-    productTypes: z.array(z.enum(productTypeValues)).min(1),
-    industries: z.array(z.enum(industryValues)).min(1),
+    productTypes: uniqueEnumArray(productTypeValues),
+    industries: uniqueEnumArray(industryValues),
     currentStage: z.enum(currentStageValues),
-    businessModels: z.array(z.enum(businessModelValues)).min(1),
-    targetMarkets: z.array(z.enum(marketValues)).min(1),
-    userProfiles: z.array(z.enum(userProfileValues)).min(1),
-    launchPlatforms: z.array(z.enum(launchPlatformValues)).min(1),
+    businessModels: uniqueEnumArray(businessModelValues),
+    targetMarkets: uniqueEnumArray(marketValues),
+    userProfiles: uniqueEnumArray(userProfileValues),
+    launchPlatforms: uniqueEnumArray(launchPlatformValues),
     budgetRange: z.enum(budgetRangeValues),
-    technicalFeatures: z.array(z.enum(technicalFeatureValues)).min(1),
-    teamResources: z.array(z.enum(teamResourceValues)).min(1),
-    promotionChannels: z.array(z.enum(promotionChannelValues)).min(1),
+    technicalFeatures: uniqueEnumArray(technicalFeatureValues),
+    teamResources: uniqueEnumArray(teamResourceValues),
+    promotionChannels: uniqueEnumArray(promotionChannelValues),
     customNotes: z.string().trim().optional()
   })
   .strict();

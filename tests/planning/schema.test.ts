@@ -112,6 +112,24 @@ describe("planningInputSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects duplicate values in required multi-select arrays", () => {
+    const result = planningInputSchema.safeParse({
+      ...validPlanningInput,
+      productTypes: ["saas", "saas"]
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects duplicate values in later multi-select arrays", () => {
+    const result = planningInputSchema.safeParse({
+      ...validPlanningInput,
+      promotionChannels: ["industry_events", "industry_events"]
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("allows optional custom notes to be omitted", () => {
     const inputWithoutNotes: Partial<typeof validPlanningInput> = {
       ...validPlanningInput
