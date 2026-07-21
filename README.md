@@ -13,7 +13,11 @@ An internal enterprise planning workspace powered by DeepSeek. The app helps tea
 
 ## Local Setup
 
+Next.js 15 requires Node.js 18.18 or newer. Node.js 20 or newer is recommended for local development.
+
 ```bash
+git clone <your-repo-url>
+cd enterprise-planning-platform
 npm install
 cp .env.example .env.local
 npm run dev
