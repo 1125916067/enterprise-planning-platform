@@ -86,6 +86,25 @@ describe("POST /api/knowledge/upload", () => {
     expect(response.status).toBe(400);
     expect(payload.error).toContain("不支持的知识文件类型");
   });
+
+  it("returns 413 for oversized uploads", async () => {
+    const formData = new FormData();
+    formData.set(
+      "file",
+      new File(["x".repeat(8 * 1024 * 1024 + 1)], "large.txt", {
+        type: "text/plain"
+      })
+    );
+
+    const { POST } = await import("../../src/app/api/knowledge/upload/route");
+    const response = await POST({
+      formData: async () => formData
+    } as Request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(payload.error).toContain("8MB");
+  });
 });
 
 describe("local JSON storage", () => {
@@ -122,5 +141,32 @@ describe("local JSON storage", () => {
       "utf8"
     );
     await expect(readJsonFile("broken.json", fallback)).resolves.toBe(fallback);
+  });
+
+  it("rejects unsafe JSON file names", async () => {
+    tempDir = await fs.mkdtemp(path.join(tmpdir(), "knowledge-store-"));
+    process.chdir(tempDir);
+
+    const { readJsonFile, writeJsonFile } = await import(
+      "../../src/lib/storage/local-store"
+    );
+    const fallback = [{ id: "fallback" }];
+    const unsafeNames = [
+      "../knowledge.json",
+      "nested/knowledge.json",
+      "nested\\knowledge.json",
+      path.resolve(tempDir, "knowledge.json"),
+      "knowledge.txt",
+      "know..ledge.json"
+    ];
+
+    for (const name of unsafeNames) {
+      await expect(readJsonFile(name, fallback)).rejects.toThrow(
+        "本地 JSON 文件名无效"
+      );
+      await expect(writeJsonFile(name, [])).rejects.toThrow(
+        "本地 JSON 文件名无效"
+      );
+    }
   });
 });

@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     }
 
     if (fileValue.size > maxUploadBytes) {
-      return NextResponse.json({ error: tooLargeMessage }, { status: 400 });
+      return NextResponse.json({ error: tooLargeMessage }, { status: 413 });
     }
 
     const extractedText = await parseKnowledgeFile(fileValue);
