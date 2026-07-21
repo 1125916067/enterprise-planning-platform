@@ -43,8 +43,25 @@ describe("buildPlanningPrompt", () => {
     const prompt = buildPlanningPrompt({
       input: planningInput
     });
+    const executiveDecisionRequirement =
+      prompt
+        .split("\n\n")
+        .find((line) => line.startsWith("executiveDecision ")) || "";
 
     expect(prompt).toContain("executiveDecision");
+    expect(prompt).toContain("recommendation");
+    expect(prompt).toContain("firstLaunchVersion");
+    expect(prompt).toContain("estimatedCostRange");
+    expect(prompt).toContain("estimatedTimeline");
+    expect(prompt).toContain("coreUsers");
+    expect(prompt).toContain("priorityPlatforms");
+    expect(prompt).toContain("mainRisks");
+    expect(prompt).toContain("recommendedTeam");
+    expect(prompt).toContain("recommendedPromotionPath");
+    expect(executiveDecisionRequirement).not.toContain("rationale");
+    expect(executiveDecisionRequirement).not.toContain("priorityActions");
+    expect(executiveDecisionRequirement).not.toContain("keyRisks");
+    expect(executiveDecisionRequirement).not.toContain("nextReviewDate");
     expect(prompt).toContain("generatedAt");
     expect(prompt).toContain("ISO");
     expect(prompt).toContain("sourceNotes");
