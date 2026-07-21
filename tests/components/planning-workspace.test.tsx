@@ -101,6 +101,56 @@ describe("PlanningWorkspace", () => {
     expect(screen.getByRole("button", { name: /导出 PDF/ })).toBeTruthy();
   });
 
+  it("uploads a knowledge file and shows the success message", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        record: { fileName: "research.txt", extractedText: "调研内容" }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { PlanningWorkspace } = await import(
+      "../../src/components/planning/PlanningWorkspace"
+    );
+
+    render(<PlanningWorkspace />);
+    const file = new File(["调研内容"], "research.txt", { type: "text/plain" });
+
+    fireEvent.change(screen.getByLabelText("上传知识文件"), {
+      target: { files: [file] }
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith("/api/knowledge/upload", {
+      method: "POST",
+      body: expect.any(FormData)
+    });
+    const formData = fetchMock.mock.calls[0][1].body as FormData;
+
+    expect(formData.get("file")).toBe(file);
+    expect(await screen.findByText("已上传知识文件：research.txt")).toBeTruthy();
+  });
+
+  it("shows the API error message when knowledge upload fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: "不支持的知识文件类型：zip" })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { PlanningWorkspace } = await import(
+      "../../src/components/planning/PlanningWorkspace"
+    );
+
+    render(<PlanningWorkspace />);
+    const file = new File(["bad"], "archive.zip", { type: "application/zip" });
+
+    fireEvent.change(screen.getByLabelText("上传知识文件"), {
+      target: { files: [file] }
+    });
+
+    expect(await screen.findByText("不支持的知识文件类型：zip")).toBeTruthy();
+  });
+
   it("clears the previous report and export controls when a second generation fails", async () => {
     const fetchMock = vi
       .fn()

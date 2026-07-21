@@ -2,7 +2,7 @@
 
 import { Sparkles } from "lucide-react";
 import React from "react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useMemo, useState } from "react";
 
 import {
   budgetRangeOptions,
@@ -112,9 +112,11 @@ const groups: {
 
 export function ProductIntakeForm({
   onGenerate,
+  onKnowledgeUpload,
   loading
 }: {
   onGenerate: (input: PlanningInput) => void | Promise<void>;
+  onKnowledgeUpload: (file: File) => void | Promise<void>;
   loading: boolean;
 }) {
   const [productName, setProductName] = useState("");
@@ -172,6 +174,17 @@ export function ProductIntakeForm({
       budgetRange,
       customNotes: customNotes.trim()
     });
+  }
+
+  function uploadKnowledge(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    void onKnowledgeUpload(file);
+    event.target.value = "";
   }
 
   return (
@@ -250,6 +263,23 @@ export function ProductIntakeForm({
             placeholder="例如：已有客户资源、上线时间约束、合规要求或希望规避的方向。"
             value={customNotes}
           />
+        </label>
+
+        <label className="block space-y-2" htmlFor="knowledge-upload">
+          <span className="text-sm font-medium text-[#243044]">
+            上传知识文件
+          </span>
+          <input
+            aria-label="上传知识文件"
+            accept=".txt,.md,.csv,.xlsx,.xls,.docx,.pdf"
+            className={inputClass}
+            id="knowledge-upload"
+            onChange={uploadKnowledge}
+            type="file"
+          />
+          <span className="block text-xs leading-5 text-[#657184]">
+            支持 txt、md、csv、xlsx、xls、docx 和 pdf。
+          </span>
         </label>
 
         <button

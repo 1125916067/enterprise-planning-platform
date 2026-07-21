@@ -10,6 +10,8 @@ import {
   planningInputSchema,
   planningReportSchema
 } from "../../../lib/planning/schema";
+import { readJsonFile } from "../../../lib/storage/local-store";
+import type { KnowledgeRecord } from "../knowledge/upload/route";
 
 const missingKeyMessage =
   "缺少 DeepSeek API Key。请在项目根目录创建或更新 .env.local，添加 DEEPSEEK_API_KEY=你的DeepSeek密钥，然后重启开发服务器。";
@@ -35,12 +37,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: invalidInputMessage }, { status: 400 });
     }
 
+    const storedKnowledgeContext = await buildStoredKnowledgeContext();
+    const knowledgeContext = [
+      typeof bodyRecord.knowledgeContext === "string"
+        ? bodyRecord.knowledgeContext
+        : "",
+      storedKnowledgeContext
+    ]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join("\n\n");
+
     const prompt = buildPlanningPrompt({
       input: inputResult.data,
-      knowledgeContext:
-        typeof bodyRecord.knowledgeContext === "string"
-          ? bodyRecord.knowledgeContext
-          : ""
+      knowledgeContext
     });
     const raw = await callDeepSeekJson<unknown>(prompt);
     const parsedReport = planningReportSchema.safeParse(raw);
@@ -97,4 +107,37 @@ function stringifyInvalidJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+async function buildStoredKnowledgeContext() {
+  const records = await readJsonFile<KnowledgeRecord[]>("knowledge.json", []);
+
+  return records
+    .filter(isKnowledgeRecord)
+    .sort(
+      (first, second) =>
+        knowledgeTimestamp(second.createdAt) - knowledgeTimestamp(first.createdAt)
+    )
+    .slice(0, 5)
+    .map(
+      ({ fileName, extractedText }) =>
+        `文件：${fileName}\n${extractedText.slice(0, 4000)}`
+    )
+    .join("\n\n");
+}
+
+function isKnowledgeRecord(value: unknown): value is KnowledgeRecord {
+  const record = toRecord(value);
+
+  return (
+    typeof record.fileName === "string" &&
+    typeof record.extractedText === "string" &&
+    typeof record.createdAt === "string"
+  );
+}
+
+function knowledgeTimestamp(createdAt: string) {
+  const timestamp = Date.parse(createdAt);
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }

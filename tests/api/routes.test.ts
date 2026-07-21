@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 
 vi.mock("server-only", () => ({}));
 
@@ -94,6 +96,8 @@ const validReport = {
   sourceNotes: ["基于用户输入和通用行业经验生成，无真实客户秘密。"]
 };
 
+const knowledgeFile = path.join(process.cwd(), ".local-data", "knowledge.json");
+
 describe("GET /api/health", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -115,7 +119,8 @@ describe("GET /api/health", () => {
 });
 
 describe("POST /api/report", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await fs.rm(knowledgeFile, { force: true });
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -143,6 +148,57 @@ describe("POST /api/report", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ report: validReport });
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("includes stored knowledge records in the planning prompt", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    await fs.mkdir(path.dirname(knowledgeFile), { recursive: true });
+    await fs.writeFile(
+      knowledgeFile,
+      JSON.stringify([
+        {
+          id: "old",
+          fileName: "old-notes.txt",
+          extractedText: "旧资料不应进入最近五条。",
+          createdAt: "2026-07-21T07:00:00.000Z"
+        },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `recent-${index}`,
+          fileName: `recent-${index}.md`,
+          extractedText: `近期知识 ${index} ${"x".repeat(4100)}`,
+          createdAt: `2026-07-21T${String(index + 8).padStart(2, "0")}:00:00.000Z`
+        }))
+      ]),
+      "utf8"
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(validReport) } }]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: JSON.stringify({
+          input: validPlanningInput,
+          knowledgeContext: "请求内上下文"
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const prompt = requestBody.messages[1].content as string;
+
+    expect(prompt).toContain("请求内上下文\n\n文件：recent-4.md");
+    expect(prompt).toContain("文件：recent-0.md\n近期知识 0");
+    expect(prompt).not.toContain("old-notes.txt");
+    expect(prompt).not.toContain("x".repeat(4001));
   });
 
   it("returns setup guidance when the DeepSeek key is missing", async () => {
