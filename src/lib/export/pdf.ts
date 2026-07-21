@@ -2,19 +2,21 @@ import PDFDocument from "pdfkit";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import unicodeRanges from "@fontsource/noto-sans-sc/unicode.json";
 import type {
   ExecutiveDecision,
   PlanningReport,
   ReportSection
 } from "@/lib/planning/schema";
 
-const bundledFontPath = path.join(
+type TextOptions = Parameters<PDFKit.PDFDocument["text"]>[1];
+
+const fontPackageFilesPath = path.join(
   process.cwd(),
   "node_modules",
   "@fontsource",
   "noto-sans-sc",
-  "files",
-  "noto-sans-sc-chinese-simplified-400-normal.woff"
+  "files"
 );
 const systemFontFallbackPaths = [
   "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -22,6 +24,13 @@ const systemFontFallbackPaths = [
   "/Library/Fonts/NotoSansCJK-Regular.ttc",
   "/System/Library/Fonts/STHeiti Medium.ttc"
 ];
+const unicodeRangeEntries = Object.entries(unicodeRanges)
+  .map(([rangeKey, rangeValue]) => ({
+    fontKey: rangeKey.replace(/^\[|\]$/g, ""),
+    ranges: parseUnicodeRange(rangeValue)
+  }))
+  .filter(({ fontKey }) => fontKey !== "latin" && fontKey !== "latin-ext");
+const registeredFontsByDocument = new WeakMap<PDFKit.PDFDocument, Set<string>>();
 
 export async function buildPdfReport(report: PlanningReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -46,17 +55,14 @@ export async function buildPdfReport(report: PlanningReport): Promise<Buffer> {
 }
 
 function registerReportFont(doc: PDFKit.PDFDocument) {
-  try {
-    doc.registerFont("ReportFont", getReportFontPath());
-    doc.font("ReportFont");
-  } catch {
-    doc.font("Helvetica");
-  }
+  doc.font("Helvetica");
 }
 
 export function getReportFontPath(): string {
-  if (existsSync(bundledFontPath)) {
-    return bundledFontPath;
+  const shardPath = getFontPathForCodePoint("规".codePointAt(0) || 0);
+
+  if (shardPath) {
+    return shardPath;
   }
 
   const systemFallback = systemFontFallbackPaths.find((fontPath) =>
@@ -70,13 +76,45 @@ export function getReportFontPath(): string {
   throw new Error("No compatible Chinese font found for PDF export.");
 }
 
+export function getReportFontPathsForText(text: string): string[] {
+  const fontPaths = new Set<string>();
+
+  for (const character of text) {
+    const fontPath = getFontPathForCodePoint(character.codePointAt(0) || 0);
+
+    if (fontPath) {
+      fontPaths.add(fontPath);
+    }
+  }
+
+  return [...fontPaths];
+}
+
+export function getUnsupportedPortableFontCharacters(text: string): string[] {
+  const unsupportedCharacters = new Set<string>();
+
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) || 0;
+
+    if (codePoint > 0xff && !getFontPathForCodePoint(codePoint)) {
+      unsupportedCharacters.add(character);
+    }
+  }
+
+  return [...unsupportedCharacters];
+}
+
 function writeTitle(doc: PDFKit.PDFDocument, report: PlanningReport) {
-  doc.fontSize(20).text(report.title, { align: "center" });
+  doc.fontSize(20);
+  writePortableText(doc, report.title, { align: "center" });
   doc
     .moveDown(0.5)
     .fontSize(10)
-    .fillColor("#4b5563")
-    .text(`生成时间：${formatDateTime(report.generatedAt)}`, { align: "center" })
+    .fillColor("#4b5563");
+  writePortableText(doc, `生成时间：${formatDateTime(report.generatedAt)}`, {
+    align: "center"
+  });
+  doc
     .fillColor("#111827")
     .moveDown(1.2);
 }
@@ -102,8 +140,11 @@ function writeSections(doc: PDFKit.PDFDocument, sections: ReportSection[]) {
   writeHeading(doc, "规划章节");
 
   sections.forEach((section, index) => {
-    doc.fontSize(13).text(`${index + 1}. ${section.title}`).moveDown(0.25);
-    doc.fontSize(10).text(section.summary).moveDown(0.25);
+    doc.fontSize(13);
+    writePortableText(doc, `${index + 1}. ${section.title}`);
+    doc.moveDown(0.25).fontSize(10);
+    writePortableText(doc, section.summary);
+    doc.moveDown(0.25);
     writeLine(doc, "保守视角", section.perspectives.conservative);
     writeLine(doc, "增长视角", section.perspectives.growth);
     writeLine(doc, "风险视角", section.perspectives.risk);
@@ -115,16 +156,21 @@ function writeSections(doc: PDFKit.PDFDocument, sections: ReportSection[]) {
 function writeSourceNotes(doc: PDFKit.PDFDocument, sourceNotes: string[]) {
   writeHeading(doc, "来源说明");
   sourceNotes.forEach((note) => {
-    doc.fontSize(9).text(`• ${note}`).moveDown(0.2);
+    doc.fontSize(9);
+    writePortableText(doc, `• ${note}`);
+    doc.moveDown(0.2);
   });
 }
 
 function writeHeading(doc: PDFKit.PDFDocument, text: string) {
-  doc.fontSize(15).text(text).moveDown(0.4);
+  doc.fontSize(15);
+  writePortableText(doc, text);
+  doc.moveDown(0.4);
 }
 
 function writeLine(doc: PDFKit.PDFDocument, label: string, value: string) {
-  doc.fontSize(10).text(`${label}：${value}`, { lineGap: 2 });
+  doc.fontSize(10);
+  writePortableText(doc, `${label}：${value}`, { lineGap: 2 });
 }
 
 function formatDateTime(value: string): string {
@@ -133,4 +179,128 @@ function formatDateTime(value: string): string {
     timeStyle: "short",
     timeZone: "Asia/Shanghai"
   }).format(new Date(value));
+}
+
+function writePortableText(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  options: TextOptions = {}
+) {
+  const runs = splitTextByFont(text);
+
+  runs.forEach((run, index) => {
+    applyFont(doc, run.fontKey);
+    doc.text(run.text, {
+      ...options,
+      continued: index < runs.length - 1
+    });
+  });
+}
+
+function applyFont(doc: PDFKit.PDFDocument, fontKey: string) {
+  if (fontKey === "Helvetica") {
+    doc.font("Helvetica");
+    return;
+  }
+
+  const fontName = `ReportFont-${fontKey}`;
+
+  try {
+    const registeredFonts = getRegisteredFonts(doc);
+
+    if (!registeredFonts.has(fontName)) {
+      doc.registerFont(fontName, getFontPath(fontKey));
+      registeredFonts.add(fontName);
+    }
+
+    doc.font(fontName);
+  } catch {
+    const fallbackPath = systemFontFallbackPaths.find((fontPath) =>
+      existsSync(fontPath)
+    );
+
+    if (fallbackPath) {
+      const registeredFonts = getRegisteredFonts(doc);
+
+      if (!registeredFonts.has("ReportSystemFallback")) {
+        doc.registerFont("ReportSystemFallback", fallbackPath);
+        registeredFonts.add("ReportSystemFallback");
+      }
+
+      doc.font("ReportSystemFallback");
+      return;
+    }
+
+    doc.font("Helvetica");
+  }
+}
+
+function getRegisteredFonts(doc: PDFKit.PDFDocument): Set<string> {
+  const registeredFonts = registeredFontsByDocument.get(doc) || new Set<string>();
+
+  if (!registeredFontsByDocument.has(doc)) {
+    registeredFontsByDocument.set(doc, registeredFonts);
+  }
+
+  return registeredFonts;
+}
+
+function splitTextByFont(text: string): Array<{ fontKey: string; text: string }> {
+  const runs: Array<{ fontKey: string; text: string }> = [];
+
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) || 0;
+    const fontKey = getFontKeyForCodePoint(codePoint);
+    const previousRun = runs[runs.length - 1];
+
+    if (previousRun?.fontKey === fontKey) {
+      previousRun.text += character;
+    } else {
+      runs.push({ fontKey, text: character });
+    }
+  }
+
+  return runs;
+}
+
+function getFontKeyForCodePoint(codePoint: number): string {
+  if (codePoint <= 0xff) {
+    return "Helvetica";
+  }
+
+  return (
+    unicodeRangeEntries.find(({ ranges }) =>
+      ranges.some(([start, end]) => codePoint >= start && codePoint <= end)
+    )?.fontKey || "Helvetica"
+  );
+}
+
+function getFontPathForCodePoint(codePoint: number): string | null {
+  const fontKey = getFontKeyForCodePoint(codePoint);
+
+  if (fontKey === "Helvetica") {
+    return null;
+  }
+
+  const fontPath = getFontPath(fontKey);
+
+  return existsSync(fontPath) ? fontPath : null;
+}
+
+function getFontPath(fontKey: string): string {
+  return path.join(
+    fontPackageFilesPath,
+    `noto-sans-sc-${fontKey}-400-normal.woff`
+  );
+}
+
+function parseUnicodeRange(rangeValue: string): Array<[number, number]> {
+  return rangeValue.split(",").map((range) => {
+    const [start, end] = range
+      .replace(/^U\+/i, "")
+      .split("-")
+      .map((value) => Number.parseInt(value, 16));
+
+    return [start, end || start];
+  });
 }

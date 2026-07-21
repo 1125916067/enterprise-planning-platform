@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 
@@ -12,18 +14,43 @@ afterEach(() => {
 
 describe("report exporters", () => {
   it("builds a PDF report buffer from structured report data", async () => {
-    const { buildPdfReport, getReportFontPath } = await import(
-      "../../src/lib/export/pdf"
-    );
+    const {
+      buildPdfReport,
+      getReportFontPath,
+      getReportFontPathsForText,
+      getUnsupportedPortableFontCharacters
+    } = await import("../../src/lib/export/pdf");
 
+    const startedAt = performance.now();
     const buffer = await buildPdfReport(demoReport);
+    const durationMs = performance.now() - startedAt;
     const fontPath = getReportFontPath();
+    const reportFontPaths = getReportFontPathsForText(
+      JSON.stringify(demoReport)
+    );
+    const unsupportedCharacters = getUnsupportedPortableFontCharacters(
+      JSON.stringify(demoReport)
+    );
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.byteLength).toBeGreaterThan(100);
     expect(buffer.subarray(0, 4).toString("utf8")).toBe("%PDF");
     expect(fontPath).toContain("node_modules");
     expect(fontPath).not.toContain("/System/Library/Fonts");
+    expect(fontPath).not.toContain("chinese-simplified-400-normal");
+    expect(reportFontPaths.length).toBeGreaterThan(0);
+    expect(unsupportedCharacters).toEqual([]);
+    expect(reportFontPaths.every((path) => path.includes("node_modules"))).toBe(
+      true
+    );
+    expect(
+      reportFontPaths.every(
+        (path) => !path.includes("chinese-simplified-400-normal")
+      )
+    ).toBe(true);
+    // The previous monolithic WOFF path measured around 36s on this machine.
+    // This threshold is intentionally loose enough for CI variance while catching that regression.
+    expect(durationMs).toBeLessThan(5000);
   });
 
   it("builds a Word report buffer from structured report data", async () => {
