@@ -1,4 +1,6 @@
 import PDFDocument from "pdfkit";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 import type {
   ExecutiveDecision,
@@ -6,7 +8,20 @@ import type {
   ReportSection
 } from "@/lib/planning/schema";
 
-const cjkFontPath = "/System/Library/Fonts/STHeiti Medium.ttc";
+const bundledFontPath = path.join(
+  process.cwd(),
+  "node_modules",
+  "@fontsource",
+  "noto-sans-sc",
+  "files",
+  "noto-sans-sc-chinese-simplified-400-normal.woff"
+);
+const systemFontFallbackPaths = [
+  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+  "/Library/Fonts/NotoSansCJK-Regular.ttc",
+  "/System/Library/Fonts/STHeiti Medium.ttc"
+];
 
 export async function buildPdfReport(report: PlanningReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -32,11 +47,27 @@ export async function buildPdfReport(report: PlanningReport): Promise<Buffer> {
 
 function registerReportFont(doc: PDFKit.PDFDocument) {
   try {
-    doc.registerFont("ReportFont", cjkFontPath);
+    doc.registerFont("ReportFont", getReportFontPath());
     doc.font("ReportFont");
   } catch {
     doc.font("Helvetica");
   }
+}
+
+export function getReportFontPath(): string {
+  if (existsSync(bundledFontPath)) {
+    return bundledFontPath;
+  }
+
+  const systemFallback = systemFontFallbackPaths.find((fontPath) =>
+    existsSync(fontPath)
+  );
+
+  if (systemFallback) {
+    return systemFallback;
+  }
+
+  throw new Error("No compatible Chinese font found for PDF export.");
 }
 
 function writeTitle(doc: PDFKit.PDFDocument, report: PlanningReport) {

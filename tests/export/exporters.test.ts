@@ -1,19 +1,29 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 
 import { demoReport } from "../../src/lib/planning/demo-data";
 
 vi.mock("server-only", () => ({}));
 
+afterEach(() => {
+  vi.doUnmock("@/lib/export/pdf");
+  vi.resetModules();
+});
+
 describe("report exporters", () => {
   it("builds a PDF report buffer from structured report data", async () => {
-    const { buildPdfReport } = await import("../../src/lib/export/pdf");
+    const { buildPdfReport, getReportFontPath } = await import(
+      "../../src/lib/export/pdf"
+    );
 
     const buffer = await buildPdfReport(demoReport);
+    const fontPath = getReportFontPath();
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.byteLength).toBeGreaterThan(100);
     expect(buffer.subarray(0, 4).toString("utf8")).toBe("%PDF");
+    expect(fontPath).toContain("node_modules");
+    expect(fontPath).not.toContain("/System/Library/Fonts");
   });
 
   it("builds a Word report buffer from structured report data", async () => {
@@ -41,11 +51,41 @@ describe("report exporters", () => {
       "推广表",
       "任务表"
     ]);
+
+    const costRows = XLSX.utils.sheet_to_json<Record<string, string>>(
+      workbook.Sheets["成本表"]
+    );
+    const launchRows = XLSX.utils.sheet_to_json<Record<string, string>>(
+      workbook.Sheets["上线流程"]
+    );
+    const taskRows = XLSX.utils.sheet_to_json<Record<string, string>>(
+      workbook.Sheets["任务表"]
+    );
+
+    expect(costRows[0]).toMatchObject({
+      类别: demoReport.boards.costs[0].category,
+      项目: demoReport.boards.costs[0].item,
+      预算估算: demoReport.boards.costs[0].estimate,
+      负责人: demoReport.boards.costs[0].owner
+    });
+    expect(launchRows[0]).toMatchObject({
+      阶段: demoReport.boards.launches[0].phase,
+      平台: demoReport.boards.launches[0].platform,
+      成功指标: demoReport.boards.launches[0].successMetric
+    });
+    expect(taskRows[0]).toMatchObject({
+      里程碑: demoReport.boards.tasks[0].milestone,
+      任务: demoReport.boards.tasks[0].task,
+      状态: demoReport.boards.tasks[0].status
+    });
   });
 });
 
 describe("export API routes", () => {
   it("returns a PDF download response", async () => {
+    vi.doMock("@/lib/export/pdf", () => ({
+      buildPdfReport: async () => Buffer.from(`%PDF-1.7\n${"x".repeat(120)}`)
+    }));
     const { POST } = await import("../../src/app/api/export/pdf/route");
 
     const response = await POST(

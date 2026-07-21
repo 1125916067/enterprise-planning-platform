@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fontsource/noto-sans-sc": "^5.3.0",
     "@types/pdfkit": "^0.13.9",
     "docx": "^9.5.1",
     "lucide-react": "^0.468.0",
