@@ -242,6 +242,67 @@ describe("PlanningWorkspace", () => {
     );
     expect(screen.getByText(/可以追问/)).toBeTruthy();
   });
+
+  it("ignores a stale in-flight assistant response after a new report becomes active", async () => {
+    let resolveChat: (response: {
+      ok: boolean;
+      json: () => Promise<{ answer: string }>;
+    }) => void = () => undefined;
+    const pendingChat = new Promise<{
+      ok: boolean;
+      json: () => Promise<{ answer: string }>;
+    }>((resolve) => {
+      resolveChat = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ report: demoReport })
+      })
+      .mockReturnValueOnce(pendingChat)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ report: nextDemoReport })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const { PlanningWorkspace } = await import(
+      "../../src/components/planning/PlanningWorkspace"
+    );
+
+    render(<PlanningWorkspace />);
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "智能门店运营平台" }
+    });
+    fireEvent.change(screen.getByLabelText("产品简介"), {
+      target: {
+        value: "为连锁零售团队提供库存预测、经营看板和门店任务协同。"
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    await screen.findByText(demoReport.title);
+    fireEvent.change(screen.getByLabelText(/输入追问/), {
+      target: { value: "第一份报告还在分析的问题" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送追问" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "供应链协同平台" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    expect(await screen.findByText(nextDemoReport.title)).toBeTruthy();
+    resolveChat({
+      ok: true,
+      json: async () => ({ answer: "旧报告延迟返回的回答。" })
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText("旧报告延迟返回的回答。")).toBeNull();
+    expect(screen.getByText(/可以追问/)).toBeTruthy();
+  });
 });
 
 describe("planning report rendering", () => {

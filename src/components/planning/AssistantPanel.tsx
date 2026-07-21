@@ -2,7 +2,7 @@
 
 import { Send } from "lucide-react";
 import React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { PlanningInput, PlanningReport } from "@/lib/planning/schema";
 
@@ -21,14 +21,19 @@ export function AssistantPanel({
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const activeRequestIdRef = useRef(0);
+  const activeReportKeyRef = useRef("");
   const reportKey = useMemo(
     () => (report ? `${report.generatedAt}:${report.title}` : ""),
     [report]
   );
 
   useEffect(() => {
+    activeReportKeyRef.current = reportKey;
+    activeRequestIdRef.current += 1;
     setMessages([]);
     setQuestion("");
+    setLoading(false);
   }, [reportKey]);
 
   async function send() {
@@ -41,6 +46,9 @@ export function AssistantPanel({
     setQuestion("");
     setMessages((items) => [...items, { role: "user", content: nextQuestion }]);
     setLoading(true);
+    const requestId = activeRequestIdRef.current + 1;
+    const requestReportKey = reportKey;
+    activeRequestIdRef.current = requestId;
 
     try {
       const response = await fetch("/api/chat", {
@@ -49,6 +57,13 @@ export function AssistantPanel({
         body: JSON.stringify({ question: nextQuestion, report })
       });
       const data = (await response.json()) as { answer?: string; error?: string };
+
+      if (
+        activeRequestIdRef.current !== requestId ||
+        activeReportKeyRef.current !== requestReportKey
+      ) {
+        return;
+      }
 
       setMessages((items) => [
         ...items,
@@ -60,12 +75,24 @@ export function AssistantPanel({
         }
       ]);
     } catch {
+      if (
+        activeRequestIdRef.current !== requestId ||
+        activeReportKeyRef.current !== requestReportKey
+      ) {
+        return;
+      }
+
       setMessages((items) => [
         ...items,
         { role: "assistant", content: "网络请求失败，请稍后重试。" }
       ]);
     } finally {
-      setLoading(false);
+      if (
+        activeRequestIdRef.current === requestId &&
+        activeReportKeyRef.current === requestReportKey
+      ) {
+        setLoading(false);
+      }
     }
   }
 
