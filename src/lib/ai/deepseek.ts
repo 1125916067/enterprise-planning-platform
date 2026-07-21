@@ -1,3 +1,5 @@
+import "server-only";
+
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 
@@ -37,7 +39,11 @@ export class DeepSeekApiError extends Error {
 export function parseDeepSeekJsonResponse<T = unknown>(content: string): T {
   const jsonText = extractJsonText(content);
 
-  return JSON.parse(jsonText) as T;
+  try {
+    return JSON.parse(jsonText) as T;
+  } catch {
+    throw new DeepSeekApiError("DeepSeek response was not valid JSON", 200);
+  }
 }
 
 export async function callDeepSeekJson<T = unknown>(prompt: string): Promise<T> {
@@ -69,11 +75,11 @@ export async function callDeepSeekText(prompt: string): Promise<string> {
     })
   });
 
-  const payload = (await response.json()) as DeepSeekChatResponse;
+  const payload = await readDeepSeekPayload(response);
 
   if (!response.ok) {
     throw new DeepSeekApiError(
-      payload.error?.message || `DeepSeek request failed with ${response.status}.`,
+      `DeepSeek request failed with status ${response.status}.`,
       response.status
     );
   }
@@ -85,6 +91,14 @@ export async function callDeepSeekText(prompt: string): Promise<string> {
   }
 
   return content;
+}
+
+async function readDeepSeekPayload(response: Response): Promise<DeepSeekChatResponse> {
+  try {
+    return (await response.json()) as DeepSeekChatResponse;
+  } catch {
+    throw new DeepSeekApiError("DeepSeek response was not valid JSON", response.status);
+  }
 }
 
 function buildMessages(prompt: string): DeepSeekMessage[] {

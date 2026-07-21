@@ -38,6 +38,17 @@ describe("buildPlanningPrompt", () => {
     expect(prompt).toContain("promotions");
     expect(prompt).toContain("tasks");
   });
+
+  it("requires executive decision, generated timestamp, and source notes details", () => {
+    const prompt = buildPlanningPrompt({
+      input: planningInput
+    });
+
+    expect(prompt).toContain("executiveDecision");
+    expect(prompt).toContain("generatedAt");
+    expect(prompt).toContain("ISO");
+    expect(prompt).toContain("sourceNotes");
+  });
 });
 
 describe("buildFollowUpPrompt", () => {
