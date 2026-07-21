@@ -117,6 +117,32 @@ describe("GET /api/health", () => {
 describe("POST /api/report", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("returns a report when DeepSeek output already matches the schema", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(validReport) } }]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: JSON.stringify({ input: validPlanningInput })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ report: validReport });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("returns setup guidance when the DeepSeek key is missing", async () => {
@@ -135,9 +161,207 @@ describe("POST /api/report", () => {
     expect(payload.error).toContain("DEEPSEEK_API_KEY");
     expect(payload.error).toContain(".env.local");
   });
+
+  it("returns 400 for invalid planning input without calling DeepSeek", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: JSON.stringify({
+          input: { ...validPlanningInput, productName: "" }
+        })
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe("请求参数无效，请检查规划输入后重试。");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a sanitized 500 when DeepSeek fails upstream", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-secret-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: { message: "Invalid token test-secret-key" }
+        })
+      })
+    );
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: JSON.stringify({ input: validPlanningInput })
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload.error).toBe("生成规划报告失败，请稍后重试。");
+    expect(payload.error).not.toContain("test-secret-key");
+    expect(payload.error).not.toContain("Invalid token");
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it("repairs invalid AI report output and returns the repaired report", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify({ title: "不完整报告" }) } }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(validReport) } }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: JSON.stringify({ input: validPlanningInput })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ report: validReport });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 502 when repaired AI output still fails report validation", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const invalidRepairedReport = {
+      ...validReport,
+      sections: validReport.sections.slice(0, 7)
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify({ title: "不完整报告" }) } }]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(invalidRepairedReport) } }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: JSON.stringify({ input: validPlanningInput })
+      })
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "AI 返回内容格式不符合要求，请重试。"
+    });
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it("returns 400 for malformed JSON requests", async () => {
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        body: "{"
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "请求 JSON 格式无效，请检查后重试。"
+    });
+  });
 });
 
 describe("POST /api/chat", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("returns an answer for a valid follow-up question", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: "建议先压缩试点范围。" } }]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("../../src/app/api/chat/route");
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          question: "预算还能再压缩吗？",
+          report: validReport
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      answer: "建议先压缩试点范围。"
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("returns setup guidance when the DeepSeek key is missing", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
+
+    const { POST } = await import("../../src/app/api/chat/route");
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          question: "预算还能再压缩吗？",
+          report: validReport
+        })
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain("DEEPSEEK_API_KEY");
+    expect(payload.error).toContain(".env.local");
+  });
+
   it("requires a non-empty question", async () => {
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
@@ -150,5 +374,43 @@ describe("POST /api/chat", () => {
 
     expect(response.status).toBe(400);
     expect(payload.error).toContain("question");
+  });
+
+  it("returns 400 for an invalid report", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("../../src/app/api/chat/route");
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          question: "预算还能再压缩吗？",
+          report: { ...validReport, sections: [] }
+        })
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "report 无效，请检查报告内容后重试。"
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for malformed JSON requests", async () => {
+    const { POST } = await import("../../src/app/api/chat/route");
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: "{"
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "请求 JSON 格式无效，请检查后重试。"
+    });
   });
 });

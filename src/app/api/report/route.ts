@@ -13,14 +13,30 @@ import {
 
 const missingKeyMessage =
   "缺少 DeepSeek API Key。请在项目根目录创建或更新 .env.local，添加 DEEPSEEK_API_KEY=你的DeepSeek密钥，然后重启开发服务器。";
+const invalidJsonMessage = "请求 JSON 格式无效，请检查后重试。";
+const invalidInputMessage = "请求参数无效，请检查规划输入后重试。";
+const invalidAiReportMessage = "AI 返回内容格式不符合要求，请重试。";
+const genericFailureMessage = "生成规划报告失败，请稍后重试。";
 
 export async function POST(request: Request) {
+  let body: unknown;
+
   try {
-    const body = (await request.json()) as unknown;
+    body = (await request.json()) as unknown;
+  } catch {
+    return NextResponse.json({ error: invalidJsonMessage }, { status: 400 });
+  }
+
+  try {
     const bodyRecord = toRecord(body);
-    const input = planningInputSchema.parse(bodyRecord.input);
+    const inputResult = planningInputSchema.safeParse(bodyRecord.input);
+
+    if (!inputResult.success) {
+      return NextResponse.json({ error: invalidInputMessage }, { status: 400 });
+    }
+
     const prompt = buildPlanningPrompt({
-      input,
+      input: inputResult.data,
       knowledgeContext:
         typeof bodyRecord.knowledgeContext === "string"
           ? bodyRecord.knowledgeContext
@@ -37,23 +53,27 @@ export async function POST(request: Request) {
       invalidJson: stringifyInvalidJson(raw),
       validationMessage: parsedReport.error.message
     });
-    const report = planningReportSchema.parse(repaired);
+    const repairedReport = planningReportSchema.safeParse(repaired);
 
-    return NextResponse.json({ report });
+    if (!repairedReport.success) {
+      console.error("AI report repair returned invalid content.", repairedReport.error);
+
+      return NextResponse.json(
+        { error: invalidAiReportMessage },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ report: repairedReport.data });
   } catch (error) {
     if (error instanceof MissingDeepSeekKeyError) {
       return NextResponse.json({ error: missingKeyMessage }, { status: 400 });
     }
 
-    if (isValidationError(error)) {
-      return NextResponse.json(
-        { error: `请求参数无效：${error.message}` },
-        { status: 400 }
-      );
-    }
+    console.error("Failed to generate planning report.", error);
 
     return NextResponse.json(
-      { error: `生成规划报告失败：${getErrorMessage(error)}` },
+      { error: genericFailureMessage },
       { status: 500 }
     );
   }
@@ -77,16 +97,4 @@ function stringifyInvalidJson(value: unknown): string {
   } catch {
     return String(value);
   }
-}
-
-function isValidationError(error: unknown): error is Error {
-  return error instanceof Error && error.name === "ZodError";
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return "请稍后重试。";
 }
