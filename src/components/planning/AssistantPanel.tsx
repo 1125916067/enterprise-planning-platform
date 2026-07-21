@@ -2,7 +2,7 @@
 
 import { Send } from "lucide-react";
 import React from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { PlanningInput, PlanningReport } from "@/lib/planning/schema";
 
@@ -21,6 +21,15 @@ export function AssistantPanel({
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const reportKey = useMemo(
+    () => (report ? `${report.generatedAt}:${report.title}` : ""),
+    [report]
+  );
+
+  useEffect(() => {
+    setMessages([]);
+    setQuestion("");
+  }, [reportKey]);
 
   async function send() {
     const nextQuestion = question.trim();

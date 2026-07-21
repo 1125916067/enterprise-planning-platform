@@ -20,7 +20,8 @@ export function PlanningWorkspace() {
   async function generate(nextInput: PlanningInput) {
     setLoading(true);
     setError("");
-    setInput(nextInput);
+    setReport(null);
+    setInput(null);
 
     try {
       const response = await fetch("/api/report", {
@@ -38,6 +39,7 @@ export function PlanningWorkspace() {
         return;
       }
 
+      setInput(nextInput);
       setReport(data.report);
     } catch {
       setError("网络请求失败，请稍后重试。");

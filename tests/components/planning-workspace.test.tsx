@@ -4,6 +4,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { demoReport } from "../../src/lib/planning/demo-data";
 
+const nextDemoReport = {
+  ...demoReport,
+  title: "供应链协同平台规划报告",
+  generatedAt: "2026-07-21T09:00:00.000Z",
+  executiveDecision: {
+    ...demoReport.executiveDecision,
+    recommendation: "建议先聚焦供应商协同、订单状态同步和异常交付提醒。"
+  }
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -89,6 +99,148 @@ describe("PlanningWorkspace", () => {
     );
     expect(await screen.findByText(demoReport.title)).toBeTruthy();
     expect(screen.getByRole("button", { name: /导出 PDF/ })).toBeTruthy();
+  });
+
+  it("clears the previous report and export controls when a second generation fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ report: demoReport })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "生成规划报告失败，请稍后重试。" })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const { PlanningWorkspace } = await import(
+      "../../src/components/planning/PlanningWorkspace"
+    );
+
+    render(<PlanningWorkspace />);
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "智能门店运营平台" }
+    });
+    fireEvent.change(screen.getByLabelText("产品简介"), {
+      target: {
+        value: "为连锁零售团队提供库存预测、经营看板和门店任务协同。"
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    expect(await screen.findByText(demoReport.title)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /导出 PDF/ })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "供应链协同平台" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "生成规划报告失败，请稍后重试。"
+    );
+    expect(screen.queryByText(demoReport.title)).toBeNull();
+    expect(screen.queryByRole("button", { name: /导出 PDF/ })).toBeNull();
+    expect(screen.getByText(/请先在左侧填写产品信息/)).toBeTruthy();
+  });
+
+  it("keeps assistant disabled before a report and sends messages after report generation", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ report: demoReport })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ answer: "建议先确认三家试点门店的数据质量。" })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const { PlanningWorkspace } = await import(
+      "../../src/components/planning/PlanningWorkspace"
+    );
+
+    render(<PlanningWorkspace />);
+    const sendButton = screen.getByRole("button", { name: "发送追问" });
+    const questionInput = screen.getByLabelText(/输入追问/);
+
+    expect(sendButton).toHaveProperty("disabled", true);
+    expect(questionInput).toHaveProperty("disabled", true);
+
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "智能门店运营平台" }
+    });
+    fireEvent.change(screen.getByLabelText("产品简介"), {
+      target: {
+        value: "为连锁零售团队提供库存预测、经营看板和门店任务协同。"
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    await screen.findByText(demoReport.title);
+    fireEvent.change(questionInput, {
+      target: { value: "先做哪些试点准备？" }
+    });
+    fireEvent.click(sendButton);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "先做哪些试点准备？", report: demoReport })
+    });
+    expect(await screen.findByText("建议先确认三家试点门店的数据质量。")).toBeTruthy();
+  });
+
+  it("resets assistant messages when a new report becomes active", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ report: demoReport })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ answer: "第一份报告的追问回答。" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ report: nextDemoReport })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const { PlanningWorkspace } = await import(
+      "../../src/components/planning/PlanningWorkspace"
+    );
+
+    render(<PlanningWorkspace />);
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "智能门店运营平台" }
+    });
+    fireEvent.change(screen.getByLabelText("产品简介"), {
+      target: {
+        value: "为连锁零售团队提供库存预测、经营看板和门店任务协同。"
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    await screen.findByText(demoReport.title);
+    fireEvent.change(screen.getByLabelText(/输入追问/), {
+      target: { value: "第一份报告如何推进？" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送追问" }));
+
+    expect(await screen.findByText("第一份报告的追问回答。")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("产品名称"), {
+      target: { value: "供应链协同平台" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成企业规划报告" }));
+
+    expect(await screen.findByText(nextDemoReport.title)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByText("第一份报告的追问回答。")).toBeNull()
+    );
+    expect(screen.getByText(/可以追问/)).toBeTruthy();
   });
 });
 
