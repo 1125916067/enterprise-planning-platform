@@ -97,6 +97,7 @@ const validReport = {
 };
 
 const knowledgeFile = path.join(process.cwd(), ".local-data", "knowledge.json");
+const billingFile = path.join(process.cwd(), ".local-data", "billing.json");
 
 describe("GET /api/health", () => {
   afterEach(() => {
@@ -121,6 +122,7 @@ describe("GET /api/health", () => {
 describe("POST /api/report", () => {
   afterEach(async () => {
     await fs.rm(knowledgeFile, { force: true });
+    await fs.rm(billingFile, { force: true });
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -152,6 +154,7 @@ describe("POST /api/report", () => {
 
   it("includes stored knowledge records in the planning prompt", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    await writeBillingLedger("knowledge-paid-user", 10000);
     await fs.mkdir(path.dirname(knowledgeFile), { recursive: true });
     await fs.writeFile(
       knowledgeFile,
@@ -184,6 +187,7 @@ describe("POST /api/report", () => {
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: "planning_user_id=knowledge-paid-user" },
         body: JSON.stringify({
           input: validPlanningInput,
           knowledgeContext: "请求内上下文"
@@ -236,6 +240,27 @@ describe("POST /api/report", () => {
 
     expect(response.status).toBe(400);
     expect(payload.error).toBe("请求参数无效，请检查规划输入后重试。");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 402 without calling DeepSeek when report token balance is insufficient", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await writeBillingLedger("low-report-balance", 1);
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        headers: { Cookie: "planning_user_id=low-report-balance" },
+        body: JSON.stringify({ input: validPlanningInput })
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(payload.error).toContain("token 余额不足");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -363,7 +388,8 @@ describe("POST /api/report", () => {
 });
 
 describe("POST /api/chat", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await fs.rm(billingFile, { force: true });
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -455,6 +481,30 @@ describe("POST /api/chat", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns 402 without calling DeepSeek when chat token balance is insufficient", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await writeBillingLedger("low-chat-balance", 1);
+
+    const { POST } = await import("../../src/app/api/chat/route");
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        headers: { Cookie: "planning_user_id=low-chat-balance" },
+        body: JSON.stringify({
+          question: "预算还能再压缩吗？",
+          report: validReport
+        })
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(payload.error).toContain("token 余额不足");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for malformed JSON requests", async () => {
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
@@ -470,3 +520,24 @@ describe("POST /api/chat", () => {
     });
   });
 });
+
+async function writeBillingLedger(userId: string, balanceTokens: number) {
+  await fs.mkdir(path.dirname(billingFile), { recursive: true });
+  await fs.writeFile(
+    billingFile,
+    JSON.stringify({
+      accounts: [
+        {
+          userId,
+          balanceTokens,
+          grantedTrialTokens: 500,
+          createdAt: "2026-07-22T00:00:00.000Z",
+          updatedAt: "2026-07-22T00:00:00.000Z"
+        }
+      ],
+      paymentRequests: [],
+      charges: []
+    }),
+    "utf8"
+  );
+}

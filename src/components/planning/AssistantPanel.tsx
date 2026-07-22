@@ -13,9 +13,11 @@ type Message = {
 
 export function AssistantPanel({
   input,
+  onBillingChanged,
   report
 }: {
   input: PlanningInput | null;
+  onBillingChanged?: () => void;
   report: PlanningReport | null;
 }) {
   const [question, setQuestion] = useState("");
@@ -74,6 +76,9 @@ export function AssistantPanel({
             : data.error ?? "追问失败，请稍后重试。"
         }
       ]);
+      if (response.ok) {
+        onBillingChanged?.();
+      }
     } catch {
       if (
         activeRequestIdRef.current !== requestId ||

@@ -6,6 +6,14 @@ import {
 } from "../../../lib/ai/deepseek";
 import { buildPlanningPrompt } from "../../../lib/ai/prompts";
 import { repairJsonResponse } from "../../../lib/ai/repair";
+import { getBillingUserId, setBillingCookie } from "../../../lib/billing/http";
+import {
+  chargeTokens,
+  ensureSufficientTokens,
+  getBillingStatus,
+  InsufficientTokensError
+} from "../../../lib/billing/store";
+import { estimateJsonTokens, estimateTokens } from "../../../lib/billing/tokens";
 import {
   planningInputSchema,
   planningReportSchema
@@ -37,6 +45,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: invalidInputMessage }, { status: 400 });
     }
 
+    if (!process.env.DEEPSEEK_API_KEY?.trim()) {
+      return NextResponse.json({ error: missingKeyMessage }, { status: 400 });
+    }
+
     const storedKnowledgeContext = await buildStoredKnowledgeContext();
     const knowledgeContext = [
       typeof bodyRecord.knowledgeContext === "string"
@@ -52,11 +64,24 @@ export async function POST(request: Request) {
       input: inputResult.data,
       knowledgeContext
     });
+    const billingStatus = await getBillingStatus(getBillingUserId(request));
+    const promptTokens = estimateTokens(prompt);
+
+    await ensureSufficientTokens(billingStatus.account.userId, promptTokens);
+
     const raw = await callDeepSeekJson<unknown>(prompt);
     const parsedReport = planningReportSchema.safeParse(raw);
 
     if (parsedReport.success) {
-      return NextResponse.json({ report: parsedReport.data });
+      await chargeTokens(
+        billingStatus.account.userId,
+        promptTokens + estimateJsonTokens(parsedReport.data),
+        "report"
+      );
+
+      const response = NextResponse.json({ report: parsedReport.data });
+
+      return setBillingCookie(response, billingStatus.account.userId);
     }
 
     const repaired = await repairJsonResponse({
@@ -74,10 +99,22 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ report: repairedReport.data });
+    await chargeTokens(
+      billingStatus.account.userId,
+      promptTokens + estimateJsonTokens(repairedReport.data),
+      "report"
+    );
+
+    const response = NextResponse.json({ report: repairedReport.data });
+
+    return setBillingCookie(response, billingStatus.account.userId);
   } catch (error) {
     if (error instanceof MissingDeepSeekKeyError) {
       return NextResponse.json({ error: missingKeyMessage }, { status: 400 });
+    }
+
+    if (error instanceof InsufficientTokensError) {
+      return NextResponse.json({ error: error.message }, { status: 402 });
     }
 
     console.error("Failed to generate planning report.", error);

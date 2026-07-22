@@ -5,6 +5,14 @@ import {
   MissingDeepSeekKeyError
 } from "../../../lib/ai/deepseek";
 import { buildFollowUpPrompt } from "../../../lib/ai/prompts";
+import { getBillingUserId, setBillingCookie } from "../../../lib/billing/http";
+import {
+  chargeTokens,
+  ensureSufficientTokens,
+  getBillingStatus,
+  InsufficientTokensError
+} from "../../../lib/billing/store";
+import { estimateTokens } from "../../../lib/billing/tokens";
 import { planningReportSchema } from "../../../lib/planning/schema";
 
 const missingKeyMessage =
@@ -39,6 +47,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: invalidReportMessage }, { status: 400 });
   }
 
+  if (!process.env.DEEPSEEK_API_KEY?.trim()) {
+    return NextResponse.json({ error: missingKeyMessage }, { status: 400 });
+  }
+
   try {
     const report = reportResult.data;
     const prompt = buildFollowUpPrompt({
@@ -46,12 +58,28 @@ export async function POST(request: Request) {
       reportTitle: report.title,
       reportJson: report
     });
-    const answer = await callDeepSeekText(prompt);
+    const billingStatus = await getBillingStatus(getBillingUserId(request));
+    const promptTokens = estimateTokens(prompt);
 
-    return NextResponse.json({ answer });
+    await ensureSufficientTokens(billingStatus.account.userId, promptTokens);
+
+    const answer = await callDeepSeekText(prompt);
+    await chargeTokens(
+      billingStatus.account.userId,
+      promptTokens + estimateTokens(answer),
+      "chat"
+    );
+
+    const response = NextResponse.json({ answer });
+
+    return setBillingCookie(response, billingStatus.account.userId);
   } catch (error) {
     if (error instanceof MissingDeepSeekKeyError) {
       return NextResponse.json({ error: missingKeyMessage }, { status: 400 });
+    }
+
+    if (error instanceof InsufficientTokensError) {
+      return NextResponse.json({ error: error.message }, { status: 402 });
     }
 
     console.error("Failed to answer planning report follow-up.", error);

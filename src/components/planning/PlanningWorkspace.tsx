@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { PlanningInput, PlanningReport } from "@/lib/planning/schema";
 
 import { AssistantPanel } from "./AssistantPanel";
+import { BillingPanel } from "./BillingPanel";
 import { ExportBar } from "./ExportBar";
 import { ProductIntakeForm } from "./ProductIntakeForm";
 import { ReportView } from "./ReportView";
@@ -14,6 +15,7 @@ import { StructuredBoards } from "./StructuredBoards";
 export function PlanningWorkspace() {
   const [report, setReport] = useState<PlanningReport | null>(null);
   const [input, setInput] = useState<PlanningInput | null>(null);
+  const [billingRefreshKey, setBillingRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [knowledgeMessage, setKnowledgeMessage] = useState<{
@@ -45,11 +47,16 @@ export function PlanningWorkspace() {
 
       setInput(nextInput);
       setReport(data.report);
+      refreshBilling();
     } catch {
       setError("网络请求失败，请稍后重试。");
     } finally {
       setLoading(false);
     }
+  }
+
+  function refreshBilling() {
+    setBillingRefreshKey((value) => value + 1);
   }
 
   async function uploadKnowledge(file: File) {
@@ -154,7 +161,14 @@ export function PlanningWorkspace() {
           </div>
         </section>
 
-        <AssistantPanel input={input} report={report} />
+        <div className="space-y-4">
+          <BillingPanel refreshKey={billingRefreshKey} />
+          <AssistantPanel
+            input={input}
+            onBillingChanged={refreshBilling}
+            report={report}
+          />
+        </div>
       </div>
     </main>
   );
