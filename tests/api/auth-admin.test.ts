@@ -36,12 +36,17 @@ describe("auth and admin API routes", () => {
         body: JSON.stringify({ email: "user@example.com" })
       })
     );
+    const requestPayload = await requestResponse.json();
 
     expect(requestResponse.status).toBe(200);
     const codeLedger = JSON.parse(
       await fs.readFile(path.join(tempDir, ".local-data", "email-codes.json"), "utf8")
     );
     const code = codeLedger.codes[0].code;
+
+    expect(requestPayload.devCode).toBe(code);
+    expect(requestPayload.message).toContain(code);
+
     const verifyResponse = await verifyCode(
       new Request("http://localhost/api/auth/verify-code", {
         method: "POST",

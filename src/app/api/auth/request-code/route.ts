@@ -29,13 +29,18 @@ export async function POST(request: Request) {
     email,
     code: codeRecord.code
   });
+  const isDevelopmentFallback =
+    !delivery.delivered && process.env.NODE_ENV !== "production";
 
   return NextResponse.json({
     ok: true,
     delivered: delivery.delivered,
+    devCode: isDevelopmentFallback ? codeRecord.code : undefined,
     message: delivery.delivered
       ? "验证码已发送，请检查邮箱。"
-      : "开发环境验证码已生成，请查看 .local-data/email-codes.json。"
+      : isDevelopmentFallback
+        ? `开发环境验证码：${codeRecord.code}`
+        : "验证码已生成，但邮件服务未配置，请联系管理员。"
   });
 }
 
