@@ -13,8 +13,6 @@ import {
 import { buildXlsxWorkbook } from "../../src/lib/export/xlsx";
 import { demoReport } from "../../src/lib/planning/demo-data";
 
-const knowledgeFile = path.join(process.cwd(), ".local-data", "knowledge.json");
-
 describe("knowledge parsers", () => {
   it("parses text buffers as UTF-8", () => {
     const text = parseTextBuffer(Buffer.from("产品背景\n支持知识库。", "utf8"));
@@ -75,11 +73,27 @@ describe("knowledge parsers", () => {
 });
 
 describe("POST /api/knowledge/upload", () => {
+  const originalCwd = process.cwd();
+  let tempDir = "";
+
   afterEach(async () => {
-    await fs.rm(knowledgeFile, { force: true });
+    process.chdir(originalCwd);
+
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      tempDir = "";
+    }
   });
 
+  async function useTempCwd() {
+    tempDir = await fs.mkdtemp(path.join(tmpdir(), "knowledge-upload-"));
+    process.chdir(tempDir);
+
+    return path.join(tempDir, ".local-data", "knowledge.json");
+  }
+
   it("stores an extracted text record for a txt upload", async () => {
+    const knowledgeFile = await useTempCwd();
     const formData = new FormData();
     formData.set(
       "file",
@@ -105,6 +119,7 @@ describe("POST /api/knowledge/upload", () => {
   });
 
   it("returns 400 for unsupported uploads", async () => {
+    await useTempCwd();
     const formData = new FormData();
     formData.set(
       "file",
@@ -122,6 +137,7 @@ describe("POST /api/knowledge/upload", () => {
   });
 
   it("returns 400 for legacy xls uploads with migration guidance", async () => {
+    await useTempCwd();
     const formData = new FormData();
     formData.set(
       "file",
@@ -141,6 +157,7 @@ describe("POST /api/knowledge/upload", () => {
   });
 
   it("returns 413 for oversized uploads", async () => {
+    await useTempCwd();
     const formData = new FormData();
     formData.set(
       "file",
