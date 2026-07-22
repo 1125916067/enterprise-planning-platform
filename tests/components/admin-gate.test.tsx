@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("AdminGate", () => {
-  it("shows the email login panel before loading admin data when the user is signed out", async () => {
+  it("shows the account login panel before loading admin data when the user is signed out", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url === "/api/auth/me") {
         return Promise.resolve(jsonResponse({ user: null }));
@@ -33,7 +33,7 @@ describe("AdminGate", () => {
 
     render(<AdminGate />);
 
-    expect(await screen.findByText("邮箱验证码登录")).toBeTruthy();
+    expect(await screen.findByText("账号登录")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalledWith("/api/admin/users");
   });
 

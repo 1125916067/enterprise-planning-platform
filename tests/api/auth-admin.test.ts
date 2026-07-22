@@ -66,6 +66,59 @@ describe("auth and admin API routes", () => {
     );
   });
 
+  it("registers a password account, prevents duplicate registration, and logs in", async () => {
+    await useTempCwd();
+    vi.stubEnv("ADMIN_EMAIL", "admin@example.com");
+    const { POST: register } = await import(
+      "../../src/app/api/auth/register/route"
+    );
+    const { POST: login } = await import("../../src/app/api/auth/login/route");
+
+    const registerResponse = await register(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          email: "admin@example.com",
+          password: "secure123"
+        })
+      })
+    );
+    const registerPayload = await registerResponse.json();
+    const duplicateResponse = await register(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          email: "admin@example.com",
+          password: "secure123"
+        })
+      })
+    );
+    const loginResponse = await login(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: "admin@example.com",
+          password: "secure123"
+        })
+      })
+    );
+    const loginPayload = await loginResponse.json();
+
+    expect(registerResponse.status).toBe(200);
+    expect(registerPayload.user).toMatchObject({
+      email: "admin@example.com",
+      role: "admin"
+    });
+    expect(registerResponse.headers.get("set-cookie")).toContain("auth_session=");
+    expect(duplicateResponse.status).toBe(409);
+    expect(loginResponse.status).toBe(200);
+    expect(loginPayload.user).toMatchObject({
+      email: "admin@example.com",
+      role: "admin"
+    });
+    expect(loginResponse.headers.get("set-cookie")).toContain("auth_session=");
+  });
+
   it("allows an admin to list and update users", async () => {
     await useTempCwd();
     vi.stubEnv("ADMIN_EMAIL", "admin@example.com");

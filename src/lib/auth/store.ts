@@ -1,4 +1,11 @@
-import { randomInt, randomUUID } from "node:crypto";
+import {
+  randomBytes,
+  randomInt,
+  randomUUID,
+  scrypt,
+  timingSafeEqual
+} from "node:crypto";
+import { promisify } from "node:util";
 
 import {
   adminEmail,
@@ -11,6 +18,7 @@ import { readJsonFile, writeJsonFile } from "../storage/local-store";
 const usersFileName = "users.json";
 const sessionsFileName = "sessions.json";
 const codesFileName = "email-codes.json";
+const scryptAsync = promisify(scrypt);
 
 export type UserRole = "user" | "admin";
 export type UserStatus = "active" | "disabled";
@@ -23,6 +31,7 @@ export type UserRecord = {
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
+  passwordHash?: string;
 };
 
 export type SessionRecord = {
@@ -120,6 +129,65 @@ export async function verifyEmailCode(email: string, code: string) {
   return { user, session };
 }
 
+export async function registerUserWithPassword(email: string, password: string) {
+  const normalizedEmail = normalizeAndValidateEmail(email);
+  validatePassword(password);
+  const ledger = await readUsersLedger();
+  const existingUser = ledger.users.find((item) => item.email === normalizedEmail);
+
+  if (existingUser) {
+    throw new Error("该邮箱已注册，请直接登录。");
+  }
+
+  const user: UserRecord = {
+    id: randomUUID(),
+    email: normalizedEmail,
+    role: roleForEmail(normalizedEmail),
+    status: "active",
+    createdAt: now(),
+    updatedAt: now(),
+    lastLoginAt: now(),
+    passwordHash: await hashPassword(password)
+  };
+
+  ledger.users.push(user);
+  await writeJsonFile(usersFileName, ledger);
+
+  const session = await createSession(user.id);
+
+  return { user, session };
+}
+
+export async function loginUserWithPassword(email: string, password: string) {
+  const normalizedEmail = normalizeAndValidateEmail(email);
+  const ledger = await readUsersLedger();
+  const user = ledger.users.find((item) => item.email === normalizedEmail);
+
+  if (!user || !user.passwordHash) {
+    throw new Error("邮箱或密码错误。");
+  }
+
+  if (!(await verifyPassword(password, user.passwordHash))) {
+    throw new Error("邮箱或密码错误。");
+  }
+
+  if (user.status !== "active") {
+    throw new Error("账号已停用，请联系管理员。");
+  }
+
+  if (roleForEmail(normalizedEmail) === "admin") {
+    user.role = "admin";
+  }
+
+  user.lastLoginAt = now();
+  user.updatedAt = now();
+  await writeJsonFile(usersFileName, ledger);
+
+  const session = await createSession(user.id);
+
+  return { user, session };
+}
+
 export async function getUserBySessionToken(token: string) {
   const sessionToken = token.trim();
 
@@ -210,7 +278,7 @@ export async function deleteSession(token: string) {
 async function upsertUserByEmail(email: string) {
   const ledger = await readUsersLedger();
   let user = ledger.users.find((item) => item.email === email);
-  const role: UserRole = email === adminEmail() ? "admin" : "user";
+  const role = roleForEmail(email);
 
   if (!user) {
     user = {
@@ -285,6 +353,39 @@ function normalizeAndValidateEmail(email: string) {
   }
 
   return normalizedEmail;
+}
+
+function validatePassword(password: string) {
+  if (password.trim().length < 6) {
+    throw new Error("密码至少需要 6 位。");
+  }
+}
+
+function roleForEmail(email: string): UserRole {
+  return email === adminEmail() ? "admin" : "user";
+}
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+
+  return `scrypt:${salt}:${derivedKey.toString("hex")}`;
+}
+
+async function verifyPassword(password: string, passwordHash: string) {
+  const [algorithm, salt, storedKey] = passwordHash.split(":");
+
+  if (algorithm !== "scrypt" || !salt || !storedKey) {
+    return false;
+  }
+
+  const storedBuffer = Buffer.from(storedKey, "hex");
+  const derivedKey = (await scryptAsync(password, salt, storedBuffer.length)) as Buffer;
+
+  return (
+    storedBuffer.length === derivedKey.length &&
+    timingSafeEqual(storedBuffer, derivedKey)
+  );
 }
 
 function now() {

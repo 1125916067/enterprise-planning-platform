@@ -1,7 +1,7 @@
 import { type NextResponse } from "next/server";
 
 import { authSessionCookieName } from "./config";
-import { getUserBySessionToken } from "./store";
+import { getUserBySessionToken, type UserRecord } from "./store";
 
 export function getCookieValue(request: Request, name: string) {
   const cookieHeader = request.headers.get("cookie") || "";
@@ -76,4 +76,13 @@ export function clearAuthCookie(response: NextResponse) {
   });
 
   return response;
+}
+
+export function publicUser(user: UserRecord) {
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    status: user.status
+  };
 }

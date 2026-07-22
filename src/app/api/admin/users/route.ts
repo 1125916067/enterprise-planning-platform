@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireAdminUser } from "../../../../lib/auth/http";
+import { publicUser, requireAdminUser } from "../../../../lib/auth/http";
 import { listUsers, updateUser } from "../../../../lib/auth/store";
 import {
   getAccount,
@@ -16,7 +16,9 @@ export async function GET(request: Request) {
     await requireAdminUser(request);
     const users = await Promise.all(
       (await listUsers()).map(async (user) => ({
-        ...user,
+        ...publicUser(user),
+        createdAt: user.createdAt,
+        lastLoginAt: user.lastLoginAt,
         balanceTokens: (await getAccount(user.id)).balanceTokens
       }))
     );
@@ -59,7 +61,9 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({
       user: {
-        ...user,
+        ...publicUser(user),
+        createdAt: user.createdAt,
+        lastLoginAt: user.lastLoginAt,
         balanceTokens: account.balanceTokens
       }
     });

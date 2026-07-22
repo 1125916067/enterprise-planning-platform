@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { publicUser, setAuthCookie } from "../../../../lib/auth/http";
 import { isValidEmail, normalizeEmail } from "../../../../lib/auth/config";
-import { verifyEmailCode } from "../../../../lib/auth/store";
+import { publicUser, setAuthCookie } from "../../../../lib/auth/http";
+import { loginUserWithPassword } from "../../../../lib/auth/store";
 import { setBillingCookie } from "../../../../lib/billing/http";
 
 export const runtime = "nodejs";
 
 const invalidJsonMessage = "请求 JSON 格式无效，请检查后重试。";
 const invalidEmailMessage = "邮箱格式无效，请检查后重试。";
-const invalidCodeMessage = "验证码必须是 6 位数字。";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -22,18 +21,14 @@ export async function POST(request: Request) {
 
   const record = toRecord(body);
   const email = normalizeEmail(stringValue(record.email));
-  const code = stringValue(record.code);
+  const password = stringValue(record.password);
 
   if (!isValidEmail(email)) {
     return NextResponse.json({ error: invalidEmailMessage }, { status: 400 });
   }
 
-  if (!/^\d{6}$/.test(code)) {
-    return NextResponse.json({ error: invalidCodeMessage }, { status: 400 });
-  }
-
   try {
-    const { user, session } = await verifyEmailCode(email, code);
+    const { user, session } = await loginUserWithPassword(email, password);
     const response = NextResponse.json({ user: publicUser(user) });
 
     setAuthCookie(response, session.token);
@@ -43,7 +38,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "登录失败。" },
-      { status: 400 }
+      { status: 401 }
     );
   }
 }
