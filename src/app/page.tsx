@@ -1,5 +1,5 @@
-import { PlanningWorkspace } from "@/components/planning/PlanningWorkspace";
+import { AuthGate } from "@/components/auth/AuthGate";
 
 export default function Home() {
-  return <PlanningWorkspace />;
+  return <AuthGate />;
 }

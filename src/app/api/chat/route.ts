@@ -5,7 +5,11 @@ import {
   MissingDeepSeekKeyError
 } from "../../../lib/ai/deepseek";
 import { buildFollowUpPrompt } from "../../../lib/ai/prompts";
-import { getBillingUserId, setBillingCookie } from "../../../lib/billing/http";
+import { requireSessionUser } from "../../../lib/auth/http";
+import {
+  getBillingUserIdForRequest,
+  setBillingCookie
+} from "../../../lib/billing/http";
 import {
   chargeTokens,
   ensureSufficientTokens,
@@ -23,6 +27,15 @@ const genericFailureMessage = "生成追问回答失败，请稍后重试。";
 
 export async function POST(request: Request) {
   let body: unknown;
+
+  try {
+    await requireSessionUser(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "请先登录。" },
+      { status: 401 }
+    );
+  }
 
   try {
     body = (await request.json()) as unknown;
@@ -58,7 +71,9 @@ export async function POST(request: Request) {
       reportTitle: report.title,
       reportJson: report
     });
-    const billingStatus = await getBillingStatus(getBillingUserId(request));
+    const billingStatus = await getBillingStatus(
+      await getBillingUserIdForRequest(request)
+    );
     const promptTokens = estimateTokens(prompt);
 
     await ensureSufficientTokens(billingStatus.account.userId, promptTokens);

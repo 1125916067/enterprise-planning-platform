@@ -98,6 +98,8 @@ const validReport = {
 
 const knowledgeFile = path.join(process.cwd(), ".local-data", "knowledge.json");
 const billingFile = path.join(process.cwd(), ".local-data", "billing.json");
+const usersFile = path.join(process.cwd(), ".local-data", "users.json");
+const sessionsFile = path.join(process.cwd(), ".local-data", "sessions.json");
 
 describe("GET /api/health", () => {
   afterEach(() => {
@@ -123,6 +125,8 @@ describe("POST /api/report", () => {
   afterEach(async () => {
     await fs.rm(knowledgeFile, { force: true });
     await fs.rm(billingFile, { force: true });
+    await fs.rm(usersFile, { force: true });
+    await fs.rm(sessionsFile, { force: true });
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -138,11 +142,13 @@ describe("POST /api/report", () => {
       })
     });
     vi.stubGlobal("fetch", fetchMock);
+    const cookie = await createAuthCookie("report-user");
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ input: validPlanningInput })
       })
     );
@@ -155,6 +161,7 @@ describe("POST /api/report", () => {
   it("includes stored knowledge records in the planning prompt", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     await writeBillingLedger("knowledge-paid-user", 10000);
+    const cookie = await createAuthCookie("knowledge-paid-user");
     await fs.mkdir(path.dirname(knowledgeFile), { recursive: true });
     await fs.writeFile(
       knowledgeFile,
@@ -187,7 +194,7 @@ describe("POST /api/report", () => {
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
-        headers: { Cookie: "planning_user_id=knowledge-paid-user" },
+        headers: { Cookie: cookie },
         body: JSON.stringify({
           input: validPlanningInput,
           knowledgeContext: "请求内上下文"
@@ -207,11 +214,13 @@ describe("POST /api/report", () => {
 
   it("returns setup guidance when the DeepSeek key is missing", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "");
+    const cookie = await createAuthCookie("missing-key-user");
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ input: validPlanningInput })
       })
     );
@@ -226,11 +235,13 @@ describe("POST /api/report", () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    const cookie = await createAuthCookie("invalid-input-user");
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({
           input: { ...validPlanningInput, productName: "" }
         })
@@ -243,17 +254,37 @@ describe("POST /api/report", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns 402 without calling DeepSeek when report token balance is insufficient", async () => {
+  it("requires login before generating a report", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    await writeBillingLedger("low-report-balance", 1);
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
-        headers: { Cookie: "planning_user_id=low-report-balance" },
+        body: JSON.stringify({ input: validPlanningInput })
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(payload.error).toContain("请先登录");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 402 without calling DeepSeek when report token balance is insufficient", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await writeBillingLedger("low-report-balance", 1);
+    const cookie = await createAuthCookie("low-report-balance");
+
+    const { POST } = await import("../../src/app/api/report/route");
+    const response = await POST(
+      new Request("http://localhost/api/report", {
+        method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ input: validPlanningInput })
       })
     );
@@ -279,11 +310,13 @@ describe("POST /api/report", () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
+    const cookie = await createAuthCookie("upstream-fail-user");
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ input: validPlanningInput })
       })
     );
@@ -315,11 +348,13 @@ describe("POST /api/report", () => {
         })
       });
     vi.stubGlobal("fetch", fetchMock);
+    const cookie = await createAuthCookie("repair-user");
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ input: validPlanningInput })
       })
     );
@@ -355,11 +390,13 @@ describe("POST /api/report", () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
+    const cookie = await createAuthCookie("invalid-repair-user");
 
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ input: validPlanningInput })
       })
     );
@@ -372,10 +409,12 @@ describe("POST /api/report", () => {
   });
 
   it("returns 400 for malformed JSON requests", async () => {
+    const cookie = await createAuthCookie("malformed-report-user");
     const { POST } = await import("../../src/app/api/report/route");
     const response = await POST(
       new Request("http://localhost/api/report", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: "{"
       })
     );
@@ -390,6 +429,8 @@ describe("POST /api/report", () => {
 describe("POST /api/chat", () => {
   afterEach(async () => {
     await fs.rm(billingFile, { force: true });
+    await fs.rm(usersFile, { force: true });
+    await fs.rm(sessionsFile, { force: true });
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -405,11 +446,13 @@ describe("POST /api/chat", () => {
       })
     });
     vi.stubGlobal("fetch", fetchMock);
+    const cookie = await createAuthCookie("chat-user");
 
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
       new Request("http://localhost/api/chat", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({
           question: "预算还能再压缩吗？",
           report: validReport
@@ -426,11 +469,13 @@ describe("POST /api/chat", () => {
 
   it("returns setup guidance when the DeepSeek key is missing", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "");
+    const cookie = await createAuthCookie("chat-missing-key-user");
 
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
       new Request("http://localhost/api/chat", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({
           question: "预算还能再压缩吗？",
           report: validReport
@@ -445,10 +490,12 @@ describe("POST /api/chat", () => {
   });
 
   it("requires a non-empty question", async () => {
+    const cookie = await createAuthCookie("empty-question-user");
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
       new Request("http://localhost/api/chat", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({ question: "   ", report: validReport })
       })
     );
@@ -462,11 +509,13 @@ describe("POST /api/chat", () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    const cookie = await createAuthCookie("invalid-chat-report-user");
 
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
       new Request("http://localhost/api/chat", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: JSON.stringify({
           question: "预算还能再压缩吗？",
           report: { ...validReport, sections: [] }
@@ -486,12 +535,13 @@ describe("POST /api/chat", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     await writeBillingLedger("low-chat-balance", 1);
+    const cookie = await createAuthCookie("low-chat-balance");
 
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
       new Request("http://localhost/api/chat", {
         method: "POST",
-        headers: { Cookie: "planning_user_id=low-chat-balance" },
+        headers: { Cookie: cookie },
         body: JSON.stringify({
           question: "预算还能再压缩吗？",
           report: validReport
@@ -506,10 +556,12 @@ describe("POST /api/chat", () => {
   });
 
   it("returns 400 for malformed JSON requests", async () => {
+    const cookie = await createAuthCookie("malformed-chat-user");
     const { POST } = await import("../../src/app/api/chat/route");
     const response = await POST(
       new Request("http://localhost/api/chat", {
         method: "POST",
+        headers: { Cookie: cookie },
         body: "{"
       })
     );
@@ -540,4 +592,40 @@ async function writeBillingLedger(userId: string, balanceTokens: number) {
     }),
     "utf8"
   );
+}
+
+async function createAuthCookie(userId: string, email = `${userId}@example.com`) {
+  await fs.mkdir(path.dirname(usersFile), { recursive: true });
+  await fs.writeFile(
+    usersFile,
+    JSON.stringify({
+      users: [
+        {
+          id: userId,
+          email,
+          role: "user",
+          status: "active",
+          createdAt: "2026-07-22T00:00:00.000Z",
+          updatedAt: "2026-07-22T00:00:00.000Z"
+        }
+      ]
+    }),
+    "utf8"
+  );
+  await fs.writeFile(
+    sessionsFile,
+    JSON.stringify({
+      sessions: [
+        {
+          token: `${userId}-session`,
+          userId,
+          createdAt: "2026-07-22T00:00:00.000Z",
+          expiresAt: "2099-01-01T00:00:00.000Z"
+        }
+      ]
+    }),
+    "utf8"
+  );
+
+  return `auth_session=${userId}-session`;
 }

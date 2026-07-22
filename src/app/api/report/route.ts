@@ -6,7 +6,11 @@ import {
 } from "../../../lib/ai/deepseek";
 import { buildPlanningPrompt } from "../../../lib/ai/prompts";
 import { repairJsonResponse } from "../../../lib/ai/repair";
-import { getBillingUserId, setBillingCookie } from "../../../lib/billing/http";
+import { requireSessionUser } from "../../../lib/auth/http";
+import {
+  getBillingUserIdForRequest,
+  setBillingCookie
+} from "../../../lib/billing/http";
 import {
   chargeTokens,
   ensureSufficientTokens,
@@ -38,6 +42,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    await requireSessionUser(request);
     const bodyRecord = toRecord(body);
     const inputResult = planningInputSchema.safeParse(bodyRecord.input);
 
@@ -64,7 +69,9 @@ export async function POST(request: Request) {
       input: inputResult.data,
       knowledgeContext
     });
-    const billingStatus = await getBillingStatus(getBillingUserId(request));
+    const billingStatus = await getBillingStatus(
+      await getBillingUserIdForRequest(request)
+    );
     const promptTokens = estimateTokens(prompt);
 
     await ensureSufficientTokens(billingStatus.account.userId, promptTokens);
@@ -115,6 +122,10 @@ export async function POST(request: Request) {
 
     if (error instanceof InsufficientTokensError) {
       return NextResponse.json({ error: error.message }, { status: 402 });
+    }
+
+    if (error instanceof Error && error.message.includes("请先登录")) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
     console.error("Failed to generate planning report.", error);

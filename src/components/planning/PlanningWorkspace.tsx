@@ -3,6 +3,7 @@
 import React from "react";
 import { useState } from "react";
 
+import type { AuthUser } from "@/components/auth/types";
 import type { PlanningInput, PlanningReport } from "@/lib/planning/schema";
 
 import { AssistantPanel } from "./AssistantPanel";
@@ -12,7 +13,13 @@ import { ProductIntakeForm } from "./ProductIntakeForm";
 import { ReportView } from "./ReportView";
 import { StructuredBoards } from "./StructuredBoards";
 
-export function PlanningWorkspace() {
+export function PlanningWorkspace({
+  onLogout,
+  user
+}: {
+  onLogout?: () => void;
+  user?: AuthUser;
+}) {
   const [report, setReport] = useState<PlanningReport | null>(null);
   const [input, setInput] = useState<PlanningInput | null>(null);
   const [billingRefreshKey, setBillingRefreshKey] = useState(0);
@@ -114,8 +121,33 @@ export function PlanningWorkspace() {
                 <h1 className="mt-1 text-xl font-semibold tracking-normal text-[#172033]">
                   企业规划报告
                 </h1>
+                {user ? (
+                  <p className="mt-1 text-xs text-[#657184]">
+                    当前账号：{user.email}
+                    {user.role === "admin" ? " / 管理员" : ""}
+                  </p>
+                ) : null}
               </div>
-              {report ? <ExportBar report={report} /> : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {user?.role === "admin" ? (
+                  <a
+                    className="rounded-md border border-[#c7d0dc] px-3 py-2 text-sm font-semibold text-[#354256] transition hover:bg-white"
+                    href="/admin"
+                  >
+                    管理后台
+                  </a>
+                ) : null}
+                {onLogout ? (
+                  <button
+                    className="rounded-md border border-[#c7d0dc] px-3 py-2 text-sm font-semibold text-[#354256] transition hover:bg-white"
+                    onClick={onLogout}
+                    type="button"
+                  >
+                    退出
+                  </button>
+                ) : null}
+                {report ? <ExportBar report={report} /> : null}
+              </div>
             </div>
           </div>
 

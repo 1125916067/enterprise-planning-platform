@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getBillingUserId, setBillingCookie } from "../../../../lib/billing/http";
+import { requireSessionUser } from "../../../../lib/auth/http";
+import {
+  getBillingUserIdForRequest,
+  setBillingCookie
+} from "../../../../lib/billing/http";
 import {
   createPaymentRequest,
   getBillingStatus
@@ -13,6 +17,15 @@ const invalidPaymentMessage = "请填写付款人、联系方式和付款凭证�
 
 export async function POST(request: Request) {
   let body: unknown;
+
+  try {
+    await requireSessionUser(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "请先登录。" },
+      { status: 401 }
+    );
+  }
 
   try {
     body = (await request.json()) as unknown;
@@ -30,7 +43,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: invalidPaymentMessage }, { status: 400 });
   }
 
-  const status = await getBillingStatus(getBillingUserId(request));
+  const status = await getBillingStatus(await getBillingUserIdForRequest(request));
   const paymentRequest = await createPaymentRequest(status.account.userId, {
     payerName,
     contact,

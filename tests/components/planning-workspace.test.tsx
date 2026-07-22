@@ -22,6 +22,13 @@ const billingStatus = {
   freeTrialTokens: 500
 };
 
+const testUser = {
+  id: "test-user",
+  email: "user@example.com",
+  role: "user" as const,
+  status: "active" as const
+};
+
 type MockResponse = {
   ok: boolean;
   json: () => Promise<unknown>;
@@ -67,7 +74,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
 
     expect(screen.getByText("产品专业输入")).toBeTruthy();
     expect(screen.getByText("企业规划报告")).toBeTruthy();
@@ -100,7 +107,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     fireEvent.change(screen.getByLabelText("付款人"), {
       target: { value: "张三" }
     });
@@ -136,7 +143,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     fireEvent.change(screen.getByLabelText("产品名称"), {
       target: { value: "智能门店运营平台" }
     });
@@ -212,7 +219,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     const file = new File(["调研内容"], "research.txt", { type: "text/plain" });
 
     fireEvent.change(screen.getByLabelText("上传知识文件"), {
@@ -251,7 +258,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     const file = new File(["bad"], "archive.zip", { type: "application/zip" });
 
     fireEvent.change(screen.getByLabelText("上传知识文件"), {
@@ -273,7 +280,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     fireEvent.change(screen.getByLabelText("产品名称"), {
       target: { value: "智能门店运营平台" }
     });
@@ -310,7 +317,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     const sendButton = screen.getByRole("button", { name: "发送追问" });
     const questionInput = screen.getByLabelText(/输入追问/);
 
@@ -360,7 +367,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     fireEvent.change(screen.getByLabelText("产品名称"), {
       target: { value: "智能门店运营平台" }
     });
@@ -414,7 +421,7 @@ describe("PlanningWorkspace", () => {
       "../../src/components/planning/PlanningWorkspace"
     );
 
-    render(<PlanningWorkspace />);
+    render(<PlanningWorkspace user={testUser} />);
     fireEvent.change(screen.getByLabelText("产品名称"), {
       target: { value: "智能门店运营平台" }
     });

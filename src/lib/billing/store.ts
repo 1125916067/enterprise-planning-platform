@@ -118,6 +118,23 @@ export async function chargeTokens(
   return account;
 }
 
+export async function setTokenBalance(userId: string, balanceTokens: number) {
+  const ledger = await readBillingLedger();
+  const { account } = ensureAccount(ledger, userId);
+
+  account.balanceTokens = Math.max(0, Math.floor(balanceTokens));
+  account.updatedAt = now();
+  await writeBillingLedger(ledger);
+
+  return account;
+}
+
+export async function getAccount(userId: string) {
+  const { account } = await getBillingStatus(userId);
+
+  return account;
+}
+
 export async function createPaymentRequest(
   userId: string,
   input: PaymentRequestInput
@@ -146,13 +163,18 @@ export async function createPaymentRequest(
 export async function reviewPaymentRequest({
   id,
   action,
-  adminToken
+  adminToken,
+  adminUserAuthorized = false
 }: {
   id: string;
   action: PaymentAction;
   adminToken: string;
+  adminUserAuthorized?: boolean;
 }) {
-  if (!process.env.ADMIN_TOKEN || adminToken !== process.env.ADMIN_TOKEN) {
+  if (
+    !adminUserAuthorized &&
+    (!process.env.ADMIN_TOKEN || adminToken !== process.env.ADMIN_TOKEN)
+  ) {
     throw new Error("管理员口令无效。");
   }
 

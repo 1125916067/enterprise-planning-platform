@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getSessionUser } from "../../../../../lib/auth/http";
 import { reviewPaymentRequest } from "../../../../../lib/billing/store";
 
 export const runtime = "nodejs";
@@ -28,10 +29,18 @@ export async function POST(
 
   try {
     const { id } = await params;
+    const sessionUser = await getSessionUser(request);
+    const adminToken = stringValue(record.adminToken);
+
+    if (sessionUser?.user.role !== "admin" && !adminToken) {
+      return NextResponse.json({ error: "需要管理员权限。" }, { status: 403 });
+    }
+
     const paymentRequest = await reviewPaymentRequest({
       id,
       action,
-      adminToken: stringValue(record.adminToken)
+      adminToken,
+      adminUserAuthorized: sessionUser?.user.role === "admin"
     });
 
     return NextResponse.json({ paymentRequest });

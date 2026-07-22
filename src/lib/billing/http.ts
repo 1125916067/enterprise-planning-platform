@@ -1,5 +1,6 @@
 import { type NextResponse } from "next/server";
 
+import { getSessionUser } from "../auth/http";
 import { billingCookieName } from "./config";
 
 export function getBillingUserId(request: Request) {
@@ -17,6 +18,12 @@ export function getBillingUserId(request: Request) {
   );
 
   return cookies[billingCookieName] || "";
+}
+
+export async function getBillingUserIdForRequest(request: Request) {
+  const sessionUser = await getSessionUser(request);
+
+  return sessionUser?.user.id || getBillingUserId(request);
 }
 
 export function setBillingCookie(response: NextResponse, userId: string) {
